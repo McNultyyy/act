@@ -1,7 +1,20 @@
 # Splitting PR #6147 into reviewable pull requests
 
-**Status:** planning complete, no code split yet.
+**Status:** PRs 1 and 3 are open upstream. PRs 2, 4, 5, 6 not started.
 **Do not push this file to any PR branch** — it is a contributor working document, not something upstream wants.
+
+| PR | branch | upstream | state |
+|----|--------|----------|-------|
+| 1 | `act-split/1-log-writer-races` | [#6153](https://github.com/nektos/act/pull/6153) | open |
+| 2 | `act-split/2-step-command-dirs` | — | not started |
+| 3 | `act-split/3-concurrency-queue-schema` | [#6152](https://github.com/nektos/act/pull/6152) | open, closes #6095 |
+| 4 | `act-split/4-independent-workflow-runs` | — | not started |
+| 5 | `act-split/5-concurrency-groups` | — | not started |
+| 6 | `act-split/6-parallel-steps` | — | not started |
+
+[#6147](https://github.com/nektos/act/pull/6147) is now a **draft** retitled "reference branch — being split, do not review", with a description linking the stack and asking the maintainers three questions: whether they want `concurrency` at all and in this shape, whether the PR 4 scheduling change is acceptable given it makes the known races in #6028/#6057/#2764 more likely, and whether the two features should be separate efforts. **Wait for those answers before building PRs 4–6.**
+
+The blocking composite regression described below is **fixed** on `feat/concurrency-groups` in `b8f60ec`.
 
 ## Where the work currently lives
 
@@ -21,9 +34,9 @@ Source commits, oldest first:
 
 That PR is **too large to review** and should not be merged as-is. It is being replaced by the stack below.
 
-## Blocking regression — fix before anything else
+## The composite regression (FIXED in b8f60ec — kept for context)
 
-`feat/concurrency-groups` **breaks composite actions**. Verified: these three tests are green on `master`
+`feat/concurrency-groups` **broke composite actions**. These three tests were green on `master`
 and red on the branch.
 
 ```
@@ -40,8 +53,15 @@ Two other capture sites are bypassed the same way and need checking:
 `pkg/runner/expression.go:205` (`hashFiles` output capture) and `pkg/runner/run_context.go:586`
 (node tool path detection). Both call `ReplaceLogWriter(hout, herr)` to capture into a buffer.
 
-Fix: publish the composite handler through `container.WithLogWriters` too, and audit the other two sites.
-This lands in **PR 6**, not earlier — see the resequencing note.
+Fixed in `b8f60ec` by publishing all three through `container.WithLogWriters`, which also removes the last
+non-nested swaps of the shared writer slot. Acceptance gate (all green):
+
+```
+go test ./pkg/runner/ -count=1 -run 'TestRunEvent$/uses-composite$|TestRunEvent$/uses-nested-composite$|TestRunEvent$/composite-fail-with-output$|TestRunEvent$/act-composite-env-test$|TestRunEvent$/do-not-leak-step-env-in-composite$|TestRunEvent$/outputs$'
+```
+
+**PR 6 must carry this fix**, since it is the PR that introduces the context writers. PR 2 avoids the
+problem entirely by not shipping them — see the resequencing note.
 
 Why it was missed: after the log-writer change only `-short` (skips integration) and named tests were run,
 never the full docker `TestRunEvent`. Any PR touching log writers must run that suite.
