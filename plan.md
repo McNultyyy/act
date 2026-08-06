@@ -436,3 +436,55 @@ Suggested first actions:
 2. Build PR 3 and open it — smallest, closes a verified issue, earns standing with the maintainers.
 3. Before investing in PRs 4–6, comment on #6147 describing the stack and asking the maintainers how they
    want it. They may have their own design in mind for `concurrency`, which their docs list as "planned".
+
+## Reality check on getting these merged (researched 2026-08-06)
+
+**nektos/act is effectively dormant.** Last merged PR of any kind: #6089, 2026-05-13 (85 days). Last human
+commit on master: 2026-03-26. Merge counts: 150 in 2024, 78 in 2025, 7 in 2026. Since 2026-04-06, 41
+external PRs have been opened and received zero reviews, zero maintainer comments and zero merges.
+ChristopherHX, panekj and cplee are all active on GitHub elsewhere but have no events in this repo.
+
+**Two hard blockers that no amount of etiquette fixes:**
+
+1. *Fork CI approval.* No fork run has been approved since 2026-04-05. 38 runs sit at `action_required`
+   across ~12 contributors; 16 of them are ours. Until someone clicks approve, our PRs have literally zero
+   status checks, so every mergify `check-success=` condition is unsatisfiable by construction.
+   These runs age out of the ~90-day retention window around **early November 2026** — push a trivial
+   commit before then or the PRs end up permanently CI-less, like #6096 and #6099 already are.
+2. *`lint` is red repo-wide.* MegaLinter's project-scoped grype (44 findings) and osv-scanner (38) fail on
+   master over dependency CVEs. `VALIDATE_ALL_CODEBASE: false` does not exempt project-mode linters, so
+   every PR inherits it. `check-success=lint` is currently unsatisfiable for everyone, dependabot included.
+   The obvious fix is circular: the x/crypto and x/net bumps that would clear it themselves broke
+   `test-linux` on 2026-07-03 and 2026-07-10.
+
+**Merge arithmetic.** Empirically an outside PR needs two write-access approvals, or one from `cplee`.
+An approval is halfway, not done: #6055 (approved, all checks green) has sat 4 months, #6007 6 months,
+#5895 12 months. Peer approvals from other contributors do not count — mergify only counts admin/write/
+maintain permission. `cplee` is the only person who direct-merges past mergify (#6042: 58 minutes, zero
+reviews).
+
+**Codecov is NOT a blocker** — `codecov/patch` is `informational: true` so it cannot fail, and tokenless
+fork uploads are proven working. Do not spend effort on patch coverage.
+
+**What does not work:** "any update?" comments have a 0% response rate in 2026 (#6039 collected three, all
+ignored). GitHub Discussions has a 0% hit rate for this exact question (#6118, 48 days, no replies). There
+is no Discord/Slack/Gitter — #2678 deliberately removed the last one.
+
+**What does work:** cross-references from an ISSUE a maintainer is already triaging. That is the only 2026
+path from cold PR to approved PR — #6055 sat untouched until panekj, triaging #6057, cross-referenced it,
+then approved both the workflow run and the PR within 24 hours.
+
+**Done on 2026-08-06:** posted a real reproduction of the composite-output leak on #2553 (ChristopherHX's
+own 2024 bug, previously bodyless), cross-referenced #2184 and #2697, and posted the `-race` findings on
+#6057 (the tracker panekj asked be kept open). Also corrected a duplicate-PR problem — see below.
+
+**Duplicate-PR correction.** #6152 duplicated #6096 by `xenjke`, who filed issue #6095 and opened their PR
+one minute later; we opened ours months after and announced it on their issue without acknowledging theirs.
+Fixed: #6152 retitled so it no longer claims to close #6095, now points at #6096 and only carries the
+`pkg/model` half; apology and offer to fold in posted on #6096; correction posted on #6095.
+**Check open PRs, not just issues, before building anything further.**
+
+**Not done deliberately:** no ping to `cplee`. The research suggests leading with the repo-wide `lint`
+breakage would get attention (his direct merges have a demonstrated sub-hour response to supply-chain
+breakage), but that is an escalation to the project founder and should be a considered decision, not a
+reflex.
