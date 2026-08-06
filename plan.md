@@ -1,12 +1,12 @@
 # Splitting PR #6147 into reviewable pull requests
 
-**Status:** PRs 1 and 3 are open upstream. PRs 2, 4, 5, 6 not started.
+**Status:** PRs 1, 2 and 3 are open upstream. PRs 4, 5, 6 are gated on maintainer answers in #6147.
 **Do not push this file to any PR branch** — it is a contributor working document, not something upstream wants.
 
 | PR | branch | upstream | state |
 |----|--------|----------|-------|
 | 1 | `act-split/1-log-writer-races` | [#6153](https://github.com/nektos/act/pull/6153) | open |
-| 2 | `act-split/2-step-command-dirs` | — | not started |
+| 2 | `act-split/2-step-command-dirs` | [#6154](https://github.com/nektos/act/pull/6154) | open, refs #2184 #2697 #2553 |
 | 3 | `act-split/3-concurrency-queue-schema` | [#6152](https://github.com/nektos/act/pull/6152) | open, closes #6095 |
 | 4 | `act-split/4-independent-workflow-runs` | — | not started |
 | 5 | `act-split/5-concurrency-groups` | — | not started |
