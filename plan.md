@@ -1,20 +1,38 @@
 # Splitting PR #6147 into reviewable pull requests
 
-**Status:** PRs 1, 2 and 3 are open upstream. PRs 4, 5, 6 are gated on maintainer answers in #6147.
+**Status (2026-08-17):** PRs 1, 2 and 3 are open upstream. PR 6 is **built and pushed**, not yet opened.
+PRs 4 and 5 are not started.
 **Do not push this file to any PR branch** — it is a contributor working document, not something upstream wants.
 
 | PR | branch | upstream | state |
 |----|--------|----------|-------|
 | 1 | `act-split/1-log-writer-races` | [#6153](https://github.com/nektos/act/pull/6153) | open |
 | 2 | `act-split/2-step-command-dirs` | [#6154](https://github.com/nektos/act/pull/6154) | open, refs #2184 #2697 #2553 |
-| 3 | `act-split/3-concurrency-queue-schema` | [#6152](https://github.com/nektos/act/pull/6152) | open, closes #6095 |
-| 4 | `act-split/4-independent-workflow-runs` | — | not started |
-| 5 | `act-split/5-concurrency-groups` | — | not started |
-| 6 | `act-split/6-parallel-steps` | — | not started |
+| 3 | `act-split/3-concurrency-queue-schema` | [#6152](https://github.com/nektos/act/pull/6152) | open, builds on @xenjke's #6096 |
+| 4 | `act-split/4-independent-workflow-runs` | — | parked, see below |
+| 5 | `act-split/5-concurrency-groups` | — | not started, do the reduced form |
+| 6 | `act-split/6-parallel-steps` | — | **built** (`598dd85`), pushed, PR held on the docker gate |
 
-[#6147](https://github.com/nektos/act/pull/6147) is now a **draft** retitled "reference branch — being split, do not review", with a description linking the stack and asking the maintainers three questions: whether they want `concurrency` at all and in this shape, whether the PR 4 scheduling change is acceptable given it makes the known races in #6028/#6057/#2764 more likely, and whether the two features should be separate efforts. **Wait for those answers before building PRs 4–6.**
+## The maintainer gate was abandoned on 2026-08-17
 
-The blocking composite regression described below is **fixed** on `feat/concurrency-groups` in `b8f60ec`.
+The original plan said to wait for answers to the three questions in
+[#6147](https://github.com/nektos/act/pull/6147) before building PRs 4–6. Twelve days later there were
+zero comments on any of our four PRs, zero commits on master since 2026-08-01, and the last merge of
+anything was still #6089 on 2026-05-13 — 96 days. Waiting is not a strategy against a dormant repo, so
+PR 6 was built anyway. The questions stay open on #6147; they are worth answering if anyone ever does,
+but nothing is blocked on them now.
+
+**The one thing that did move:** `xenjke` replied on #6096 (2026-08-13) agreeing to the plan — merge
+their schema-only fix first, then rebase #6152's `pkg/model` half on top. Do that when #6096 lands.
+
+**Order changed.** PR 6 went before PRs 4 and 5 because it is the only remaining slice that closes a
+live issue (#6124), and it does not depend on PR 4, the risky scheduling change. PR 5 should follow in
+its **reduced job-level-only form**, which also does not need PR 4. PR 4 stays parked: it is the one
+change every act user feels, it makes known unfixed races more likely, and there is no maintainer signal
+to justify the risk.
+
+The blocking composite regression described below is **fixed** on `feat/concurrency-groups` in `b8f60ec`,
+and PR 6 carries the fix.
 
 ## Where the work currently lives
 
@@ -341,6 +359,56 @@ Keep `background-steps-container` in the docker `TestRunEvent` table. Add a matr
 `parallel` groups plus a loose background step across three matrix entries, to lock in that auto-assigned
 ids stay collision-free. Re-run the three composite tests as the acceptance gate for the log-writer change,
 and `go test -race ./pkg/runner/...` for the locking.
+
+#### BUILT — `598dd85` on `act-split/6-parallel-steps`, pushed to the fork
+
+Branch is `master` + PR 1 + PR 2 + the feature commit (~1500 lines). No PR opened yet; see the gate below.
+
+What was done differently from the plan above, and why:
+
+- **Must-fix #2 ("copy the step") was dropped — the premise is wrong.** `Step.ParallelSteps()` calls
+  `decodeNode(s.RawParallel, &steps)`, which decodes the YAML node into a fresh `[]*Step` on **every**
+  call. Matrix `RunContext`s therefore never share the children, and `child.ID` / `child.Background`
+  only ever touch that call's own copies. Copying would have been dead weight. Locked in by
+  `TestExpandParallelStepGroupsDoesNotMutateTheJobModel`, which expands the same job twice and asserts
+  the job model still holds one unexpanded group, both expansions produce the same ids, and the two
+  expansions return distinct pointers.
+- **Schema now matches GitHub, and the runtime rejects what it cannot honour.** `parallel-steps.item-type`
+  is `steps-item` as upstream has it, so a workflow with a nested `parallel:` or a `wait:` inside a group
+  validates exactly as it does on GitHub. `expandParallelStepGroups` then fails it with a named error
+  rather than silently dropping the step. `cancel-step` gained `continue-on-error`; `wait-targets` /
+  `wait-all-value` were renamed to `step-wait-target` / `step-wait-all-value`. `parallel-step` keeps
+  `name`/`id` — the synthesized wait step reuses the group's id, and inventing a second id scheme to
+  match GitHub exactly is not worth it. Covered by `TestExpandParallelStepGroupsRejectsNesting`, whose
+  four cases each assert the workflow *parses* and only then fails to expand.
+- **Fixed a bug the feature branch introduced and nobody caught:** `stepCommandHandler`'s closure assigned
+  to its captured `stepID` parameter, so the first `::set-output` with an empty stepID pinned every later
+  command from that handler to whichever step happened to be current at the time. Harmless while steps
+  were serial; wrong the moment background steps overlap. Now resolved per line.
+- **The `-windows` background fixtures were kept.** "Must not ship" item 4 is about the ten
+  `concurrency-*-windows` duplicates, which belong to PR 5. `background-steps-windows` and
+  `background-steps-fail-windows` are referenced by `step_background_test.go` on Windows hosts — dropping
+  them fails the unit tests there, which is how the mistake was caught.
+- **`valueMasker` no longer allocates when there are no masks**, the mitigation the PR 1 risk list asked
+  for.
+- Added `testdata/background-steps-matrix/` (two `parallel` groups plus a loose background step across
+  three matrix entries) and wired it plus `background-steps-container` into the `TestRunEvent` table.
+
+**Verified:** `go build ./...`, `go vet ./...` clean. `pkg/model`, `pkg/schema` green.
+`TestExpandParallelStepGroups*`, `TestRunBackgroundSteps`, `TestRunBackgroundStepFailure` green.
+The full `-short pkg/runner` suite produces a failure set **identical to a `master` worktree baseline**
+(10 tests, all docker-connection or Windows-path environmental) — so zero regressions.
+
+**NOT verified — this is the gate holding the PR back.** Docker Desktop was down, so neither ran:
+
+```
+go test ./pkg/runner/ -count=1 -run 'TestRunEvent$/uses-composite$|TestRunEvent$/uses-nested-composite$|TestRunEvent$/composite-fail-with-output$|TestRunEvent$/act-composite-env-test$|TestRunEvent$/do-not-leak-step-env-in-composite$|TestRunEvent$/outputs$|TestRunEvent$/background-steps-container$|TestRunEvent$/background-steps-matrix$'
+go test -race ./pkg/runner/...     # needs a linux container, no cgo/gcc on this windows host
+```
+
+The composite subset is the **non-negotiable** one: this is the PR that introduces the context log
+writers, and skipping exactly this suite is what let the original regression through. Do not open the PR
+until both have run.
 
 ---
 
