@@ -1,7 +1,6 @@
 # Splitting PR #6147 into reviewable pull requests
 
-**Status (2026-08-17):** PRs 1, 2 and 3 are open upstream. PR 6 is **built and pushed**, not yet opened.
-PRs 4 and 5 are not started.
+**Status (2026-08-17):** PRs 1, 2, 3 and 6 are open upstream. PR 4 is parked; PR 5 is not started.
 **Do not push this file to any PR branch** — it is a contributor working document, not something upstream wants.
 
 | PR | branch | upstream | state |
@@ -11,7 +10,7 @@ PRs 4 and 5 are not started.
 | 3 | `act-split/3-concurrency-queue-schema` | [#6152](https://github.com/nektos/act/pull/6152) | open, builds on @xenjke's #6096 |
 | 4 | `act-split/4-independent-workflow-runs` | — | parked, see below |
 | 5 | `act-split/5-concurrency-groups` | — | not started, do the reduced form |
-| 6 | `act-split/6-parallel-steps` | — | **built** (`598dd85`), pushed, PR held on the docker gate |
+| 6 | `act-split/6-parallel-steps` | [#6161](https://github.com/nektos/act/pull/6161) | **draft**, stacked on #6153 + #6154, closes #6124 |
 
 ## The maintainer gate was abandoned on 2026-08-17
 
@@ -399,16 +398,50 @@ What was done differently from the plan above, and why:
 The full `-short pkg/runner` suite produces a failure set **identical to a `master` worktree baseline**
 (10 tests, all docker-connection or Windows-path environmental) — so zero regressions.
 
-**NOT verified — this is the gate holding the PR back.** Docker Desktop was down, so neither ran:
+#### Docker gate — RAN AND PASSED (2026-08-17)
+
+**Composite suite, the non-negotiable one.** All seven green, ~175s. Confirmed with `-v` that the subtests
+actually ran rather than the filter matching nothing — a silently-empty `-run` regex is the one way this
+gate can lie:
 
 ```
-go test ./pkg/runner/ -count=1 -run 'TestRunEvent$/uses-composite$|TestRunEvent$/uses-nested-composite$|TestRunEvent$/composite-fail-with-output$|TestRunEvent$/act-composite-env-test$|TestRunEvent$/do-not-leak-step-env-in-composite$|TestRunEvent$/outputs$|TestRunEvent$/background-steps-container$|TestRunEvent$/background-steps-matrix$'
-go test -race ./pkg/runner/...     # needs a linux container, no cgo/gcc on this windows host
+go test ./pkg/runner/ -count=1 -v -run 'TestRunEvent$/uses-composite$|TestRunEvent$/uses-nested-composite$|TestRunEvent$/composite-fail-with-output$|TestRunEvent$/act-composite-env-test$|TestRunEvent$/do-not-leak-step-env-in-composite$|TestRunEvent$/outputs$|TestRunEvent$/composite-undeclared-outputs$'
 ```
 
-The composite subset is the **non-negotiable** one: this is the PR that introduces the context log
-writers, and skipping exactly this suite is what let the original regression through. Do not open the PR
-until both have run.
+`uses-composite`, `uses-nested-composite` and `composite-fail-with-output` are the three that were **red on
+`feat/concurrency-groups`**. They pass here, so the split plus the `WithLogWriters` fix does what it was
+supposed to.
+
+**Feature fixtures.** `background-steps-container` and `background-steps-matrix` both green.
+
+**Race detector**, run in a linux container since this windows host has neither cgo nor gcc:
+
+```
+docker run --rm -v "C:/Users/willi/Projects/act:/src" -w /src golang:1.25 go test -race ./pkg/runner/ -short -count=1
+```
+
+Three races on the branch — and **three on a clean `master` clone, in the same act frames**:
+`GoGitActionCache.Fetch`, `GoGitActionCache.GetTarArchive`, `actionCacheCopyFileOrDir`, `TestActionCache`.
+That is the known unfixed #6028, which this PR does not touch. **Nothing from PR 6 appears in any race
+report** — no `step_background.go`, no `run_context.go` locking, no `logger.go`, no `container/log_writer.go`.
+
+**Baselining note worth keeping.** A first pass showed `TestActionCache/Fetch_HEAD` and `Fetch_Sha` failing
+only on the branch. They are flaky: they pass standalone, and a second `master` run reproduced both. Always
+run the master baseline twice before believing a failure-set delta on this repo — `TestActionCache` does live
+network fetches and sits on top of the #6028 race.
+
+To reproduce the baseline, clone rather than use a worktree, and pass `-c core.longpaths=true` — the
+`node_modules` testdata blows past MAX_PATH under a scratchpad directory.
+
+#### Opened as draft #6161
+
+<https://github.com/nektos/act/pull/6161> — +1731/−131 across 34 files, of which only `598dd85` is new; the
+rest is #6153 + #6154. Draft on purpose, and the body says so in the first screenful: rebase and mark ready
+once those two land.
+
+Cross-referenced from **#6124** with a note to `@nicopico-dev` that their linked workflow is what it was
+checked against. That cross-reference is the point — it is the only 2026 mechanism that has moved a cold PR
+in this repo. #6147's stack table now links #6161 and records that PR 4 is parked.
 
 ---
 
